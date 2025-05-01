@@ -1,27 +1,36 @@
+#define F_CPU 16000000UL
+
 #include <avr/io.h>
 #include <stdio.h>
-#define sizeOfAvgArr 10
+#include <avr/interrupt.h>
+
+#define sizeOfAvgArr 50
+#define BAUD 38400  //19200
+#define myUBBR0 F_CPU/16/BAUD-1
 
 volatile uint16_t count = 0;
 volatile uint8_t NumberOfValuesinArray = 0;
-//volatile uint8_t *ptrToAvg;
-//volatile ptrToAvg = (uint8_t) calloc(sizeOfAvgArr, sizeof(uint8_t));
+volatile uint8_t *ptrToAvg;
 
 void InitializeTimer0(void) {
     DDRB |= (1 << PORTB5); //PB5 as output
 	TCCR0A = 0;
 	TCCR0B = 0;
-    //timer0
-    TCCR0A |= (1 << COM0A0);
-    TCCR0B |= (1 << WGM01) | (1 << CS01) | (1 << CS00); //CTC, Prescaler 1024
-    OCR0A = 249;
+    //timer0    -   compare match
+	//TCCR0A |= (1 << COM0A0);
+	TCCR0A |= (1 << WGM01);
+    TCCR0B |= (1 << CS01) | (1 << CS00); //CTC
+    OCR0A = 24;  //100us  presc = 64
+	TIMSK0 |= (1 << OCIE0A);
+	sei();
 }
 
-void InitializeUart0(void) {//setting up UART0
+
+void InitializeUart0(unsigned int ubrr) {//setting up UART0
     //Baud rate   //  UBRR0 = 16000000/(16*19200)-1 = 51
     UBRR0 = 0;
-    UBRR0H = (103 >> 8); //BRR Low and High
-    UBRR0L = 103;
+    UBRR0H = (unsigned char)(ubrr >> 8); //BRR Low and High
+    UBRR0L = (unsigned char)ubrr;
     UCSR0B |= (1 << TXEN0); //Enable TX
     UCSR0C |= (1 << UCSZ01) | (1 << UCSZ00); // 8 data bits, 1 stop bit
 }
@@ -61,14 +70,14 @@ uint16_t read_ADC(void) {
     return ADC;
 }
 
-/*
+
 void shiftValueArr(uint8_t value) {
 	if(NumberOfValuesinArray < 255) {
 		ptrToAvg[sizeOfAvgArr-NumberOfValuesinArray] = value;
 		NumberOfValuesinArray++;
 	}
 	else {
-		memmove(void *(ptrToAvg+1), const void *ptrToAvg, (NumberOfValuesinArray-1)*sizeof(uint8_t));  //move mem by 1, but codies 1 byte less, so we could shift this shit
+		memmove(*(ptrToAvg+1), *ptrToAvg, (NumberOfValuesinArray-1)*sizeof(uint8_t));  //move mem by 1, but codies 1 byte less, so we could shift this shit
 	}
 }
 
@@ -82,29 +91,42 @@ void calcArray(void) {
 		}
 	}
 }
-*/
+
+
+ISR(TIMER0_COMPA_vect){
+	count++;
+		uint8_t mic_adc = (read_ADC()) / 4; //read value of mic  10bits to 8bits
+		//shiftValueArr(mic_adc);
+		if(mic_adc > 25){
+			USART0_Transmit(mic_adc);
+			//shiftValueArr(mic_adc);
+			
+		}
+		else{
+			USART0_Transmit(0);
+		}
+
+	//if((count % 10) == 0){	}
+	
+	if(count >= 5000) {  //every 500ms toggle PB5
+		count = 0;
+		PORTB ^= (1 << PORTB5);
+	}
+}
+
 
 int main(void) {
-	InitializeAdc();
+   	InitializeAdc();
 	InitializeTimer0();
-	InitializeUart0();
+	InitializeUart0(myUBBR0);
 	
-	/*
+	ptrToAvg = (uint8_t) calloc(sizeOfAvgArr, sizeof(uint8_t));
 	if(ptrToAvg == NULL) {
 		return 0;
 	}
-	*/
+
     while (1) {
-        if (TIFR0 & (1 << OCF0A)) {
-            TIFR0 |= (1 << OCF0A); // clear flag  (set to 1 = clear, 0 to set)
-            count++;
-            uint8_t mic_adc = (read_ADC()) / 4; //read value of mic
-            //shiftValueArr(mic_adc);
-            USART0_Transmit(mic_adc);
-            if (count >= 500) {  //every 500ms toggle PB5
-                PORTB ^= (1 << PORTB5);
-                count = 0;
-            }
-        }
+
+       
     }
 }
