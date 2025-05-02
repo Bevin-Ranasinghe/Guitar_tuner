@@ -1,16 +1,44 @@
 #define F_CPU 16000000UL
 
+
+
 #include <avr/io.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <avr/interrupt.h>
 
-#define sizeOfAvgArr 50
 #define BAUD 38400  //19200
 #define myUBBR0 F_CPU/16/BAUD-1
+#define BufferSize 100
 
 volatile uint16_t count = 0;
-volatile uint8_t NumberOfValuesinArray = 0;
-volatile uint8_t *ptrToAvg;
+
+
+typedef struct {
+		uint8_t buffer[BufferSize];
+		uint8_t head;
+		uint8_t tail;
+		uint8_t BufferCount;
+}CircularBuffer;
+
+volatile CircularBuffer ADCvalueBuffer;
+
+void InitializeBuffer(CircularBuffer *ADCvalueBuffer){
+	ADCvalueBuffer->head = 0;
+	ADCvalueBuffer->tail = 0;
+	ADCvalueBuffer->BufferCount = 0;	
+}
+
+void addToCircularBuffer(CircularBuffer *ADCvalueBuffer, uint8_t value){
+		if(ADCvalueBuffer->BufferCount == BufferSize){//if buffer is full
+			ADCvalueBuffer->tail = (ADCvalueBuffer->tail + 1) % BufferSize; 
+		}
+		else{
+			ADCvalueBuffer->BufferCount++; //we added 1 item to the buffer
+		}
+		ADCvalueBuffer->buffer[ADCvalueBuffer->head] = value;
+		ADCvalueBuffer->head = (ADCvalueBuffer->head + 1) % BufferSize;
+}
 
 void InitializeTimer0(void) {
     DDRB |= (1 << PORTB5); //PB5 as output
@@ -24,7 +52,6 @@ void InitializeTimer0(void) {
 	TIMSK0 |= (1 << OCIE0A);
 	sei();
 }
-
 
 void InitializeUart0(unsigned int ubrr) {//setting up UART0
     //Baud rate   //  UBRR0 = 16000000/(16*19200)-1 = 51
@@ -52,9 +79,9 @@ void USART0_Transmit(unsigned char data) { //send byte
     UDR0 = data;
 }
 
-void USART0_TransmitStr(const char * str) { //from string, send byte by byte to function above
-    while ( * str) {
-        USART0_Transmit( * str++);
+void USART0_TransmitStr(const char *str) { //from string, send byte by byte to function above
+    while (*str) {
+        USART0_Transmit(*str++);
     }
 }
 
@@ -70,63 +97,32 @@ uint16_t read_ADC(void) {
     return ADC;
 }
 
-
-void shiftValueArr(uint8_t value) {
-	if(NumberOfValuesinArray < 255) {
-		ptrToAvg[sizeOfAvgArr-NumberOfValuesinArray] = value;
-		NumberOfValuesinArray++;
-	}
-	else {
-		memmove(*(ptrToAvg+1), *ptrToAvg, (NumberOfValuesinArray-1)*sizeof(uint8_t));  //move mem by 1, but codies 1 byte less, so we could shift this shit
-	}
-}
-
-void calcArray(void) {
-	uint8_t temp1, temp2;
-	for(uint8_t i = 0; i < (NumberOfValuesinArray-1); ++i) {
-		temp1 = *(ptrToAvg+i);
-		temp2 = *(ptrToAvg+i+1);
-		if(temp1 > temp2) {
-			
-		}
-	}
-}
-
-
 ISR(TIMER0_COMPA_vect){
 	count++;
-		uint8_t mic_adc = (read_ADC()) / 4; //read value of mic  10bits to 8bits
-		//shiftValueArr(mic_adc);
-		if(mic_adc > 25){
-			USART0_Transmit(mic_adc);
-			//shiftValueArr(mic_adc);
-			
-		}
-		else{
-			USART0_Transmit(0);
-		}
-
-	//if((count % 10) == 0){	}
-	
+	//uint8_t mic_adc = (read_ADC()) / 4; //read value of mic  10bits to 8bits
+	//if(mic_adc > 0){
+		//USART0_Transmit(mic_adc);
+		//addToCircularBuffer(&ADCvalueBuffer, mic_adc);
+	//}
+	//else{
+		//USART0_Transmit(0);
+	//}
 	if(count >= 5000) {  //every 500ms toggle PB5
 		count = 0;
 		PORTB ^= (1 << PORTB5);
 	}
 }
 
-
 int main(void) {
    	InitializeAdc();
 	InitializeTimer0();
 	InitializeUart0(myUBBR0);
 	
-	ptrToAvg = (uint8_t) calloc(sizeOfAvgArr, sizeof(uint8_t));
-	if(ptrToAvg == NULL) {
-		return 0;
-	}
-
-    while (1) {
-
-       
+	InitializeBuffer(&ADCvalueBuffer);
+    
+	while (1) {
+		uint8_t mic_adc = (read_ADC()) / 4;
+		USART0_Transmit(mic_adc);
+	//nothing here yet	
     }
 }
