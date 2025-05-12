@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <util/delay.h>
 
+
 #define BAUD 9600
 #define myUBBR0 F_CPU/16/BAUD-1
 #define BUFFERSIZE_16_BIT 500
@@ -18,6 +19,20 @@ volatile uint8_t AMPLITUDE_DETECTION_THRESHOLD = 30;
 #define BUTTON_PIN     PB7
 #define LED_PIN        PB5
 #define DEBOUNCE_DELAY 50
+
+typedef struct {
+    float freq;
+    const char *note;
+} GuitarNote;
+
+GuitarNote standardNotes[] = {
+    {82.41, "E2"},
+    {110.00, "A2"},
+    {146.83, "D3"},
+    {196.00, "G3"},
+    {246.94, "B3"},
+    {329.63, "E4"}
+};
 
 volatile bool toggle_adc_channel = false;
 volatile bool takeADC = false, soundDetected = false, startRecording = false;
@@ -200,12 +215,28 @@ void detectSound(){
 	}
 	previousAmplitude = currentAmplitude;
 }
-void calculateFrequency(){
+void calculateFrequencyAndNote(){
 	cli();
 	uint16_t almostMaxValue = averageOfTop2ExcludingMax(&ADC_Buffer_16_Bit);
 	uint16_t Our0Crossing2avg = zeroCrossing16BitBuffer(&ADC_Buffer_16_Bit, almostMaxValue-FREQUENCY_DETECTION_THRESHOLD);
 	uint16_t Freq = Our0Crossing2avg/(ADC_Buffer_16_Bit.BufferCount*0.00025);
 	sei();
+
+const char *closestNote = "Unknown";
+    float minDiff = 9999;
+    for (uint8_t i = 0; i < sizeof(standardNotes)/sizeof(GuitarNote); i++) {
+        float diff = fabs(freq - standardNotes[i].freq);
+        if (diff < minDiff) {
+            minDiff = diff;
+            closestNote = standardNotes[i].note;
+        }
+    }
+
+    char noteDisplay[16];
+    snprintf(noteDisplay, sizeof(noteDisplay), "%s (%.1fHz)", closestNote, freq);
+    LCD_clear();
+    LCD_print(noteDisplay);
+}
 	USART0_TransmitStr("So called freq: ");
 	USART0_TransmitInt(Freq);
 }
@@ -222,7 +253,7 @@ uint8_t scale_input_threshold(uint16_t input) {
 	// Apply scaling
 	float output = slope * input + intercept;
 
-	// Clamp to 0–255
+	// Clamp to 0â€“255
 	if (output < 0) output = 0;
 	if (output > 255) output = 255;
 
@@ -279,7 +310,7 @@ int main(void){
 			InitializeBuffer(&ADC_Buffer_16_Bit); //reset buffer basically..
 			fillInTheBuffer();
 			if(!soundDetected) {detectSound();}
-			else if (startRecording){calculateFrequency();}
+			else if (startRecording){calculateFrequencyAndNote();}
 		}
 		else{
 			uint16_t potent = read_ADC(POTENTIOMETER);
