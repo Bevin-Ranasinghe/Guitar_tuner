@@ -5,34 +5,97 @@
 #include <stdbool.h>
 #include <util/delay.h>
 
-
+#define LCD_ADDR        0x3E
+#define SCL_CLOCK 100000L // 100kHz standard I2C clock speed
 #define BAUD 9600
 #define myUBBR0 F_CPU/16/BAUD-1
 #define BUFFERSIZE_16_BIT 500
 
 volatile uint8_t AMPLITUDE_DETECTION_THRESHOLD = 30;
 //#define AMPLITUDE_DETECTION_THRESHOLD 30
+volatile uint16_t potent = 0;
 #define FREQUENCY_DETECTION_THRESHOLD 5
 #define POTENTIOMETER 1
 #define SOUND_SENSOR 0
+// LCD Commands
+#define LCD_CMD         0x80
+#define LCD_DATA        0x40
+#define LCD_CLEAR       0x01
+#define LCD_LINE1       0x80
+#define LCD_LINE2       0xC0
+
 
 #define BUTTON_PIN     PB7
 #define LED_PIN        PB5
 #define DEBOUNCE_DELAY 50
 
-typedef struct {
-    float freq;
-    const char *note;
-} GuitarNote;
+// ================= I2C Interface =================
+void TWI_init(void) {
+	TWSR0 = 0x00; // Prescaler = 1
+	TWBR0 = ((F_CPU / SCL_CLOCK) - 16) / 2; // Bit rate register
+}
 
-GuitarNote standardNotes[] = {
-    {82.41, "E2"},
-    {110.00, "A2"},
-    {146.83, "D3"},
-    {196.00, "G3"},
-    {246.94, "B3"},
-    {329.63, "E4"}
-};
+void TWI_start(void) {
+	TWCR0 = (1 << TWSTA) | (1 << TWEN) | (1 << TWINT); // Send START
+	while (!(TWCR0 & (1 << TWINT)));
+}
+
+void TWI_stop(void) {
+	TWCR0 = (1 << TWSTO) | (1 << TWEN) | (1 << TWINT); // Send STOP
+	_delay_ms(1);
+}
+
+void TWI_write(uint8_t data) {
+	TWDR0 = data;
+	TWCR0 = (1 << TWEN) | (1 << TWINT); // Start transmission
+	while (!(TWCR0 & (1 << TWINT)));
+}
+
+
+// ================= LCD Functions =================
+void LCD_sendCommand(uint8_t cmd) {
+	TWI_start();
+	TWI_write(LCD_ADDR << 1); // Write address
+	TWI_write(0x80);          // Co = 1, RS = 0 (Command Mode)
+	TWI_write(cmd);
+	TWI_stop();
+}
+
+void LCD_sendData(uint8_t data) {
+	TWI_start();
+	TWI_write(LCD_ADDR << 1); // Write address
+	TWI_write(0x40);          // Co = 0, RS = 1 (Data Mode)
+	TWI_write(data);
+	TWI_stop();
+}
+
+void LCD_init(void) {
+	_delay_ms(50); // Wait for LCD power up
+	LCD_sendCommand(0x38); // 8-bit, 2 line, normal font
+	LCD_sendCommand(0x39); // Function set
+	LCD_sendCommand(0x14); // Internal OSC freq
+	LCD_sendCommand(0x70); // Contrast set
+	LCD_sendCommand(0x56); // Power/icon/contrast control
+	LCD_sendCommand(0x6C); // Follower control
+	_delay_ms(200);
+	LCD_sendCommand(0x38); // Function set
+	LCD_sendCommand(0x0C); // Display ON
+	LCD_sendCommand(0x01); // Clear display
+	_delay_ms(2);
+}
+
+void LCD_setCursor(uint8_t col, uint8_t row) {
+	uint8_t address = (row == 0) ? col : (0x40 + col);
+	LCD_sendCommand(0x80 | address);
+}
+
+void LCD_print(const char *str) {
+	while (*str) {
+		LCD_sendData(*str++);
+	}
+}
+
+//end of LCD functions
 
 volatile bool toggle_adc_channel = false;
 volatile bool takeADC = false, soundDetected = false, startRecording = false;
@@ -215,30 +278,103 @@ void detectSound(){
 	}
 	previousAmplitude = currentAmplitude;
 }
-void calculateFrequencyAndNote(){
+void calculateFrequency(){
 	cli();
 	uint16_t almostMaxValue = averageOfTop2ExcludingMax(&ADC_Buffer_16_Bit);
 	uint16_t Our0Crossing2avg = zeroCrossing16BitBuffer(&ADC_Buffer_16_Bit, almostMaxValue-FREQUENCY_DETECTION_THRESHOLD);
 	uint16_t Freq = Our0Crossing2avg/(ADC_Buffer_16_Bit.BufferCount*0.00025);
 	sei();
-
-const char *closestNote = "Unknown";
-    float minDiff = 9999;
-    for (uint8_t i = 0; i < sizeof(standardNotes)/sizeof(GuitarNote); i++) {
-        float diff = fabs(freq - standardNotes[i].freq);
-        if (diff < minDiff) {
-            minDiff = diff;
-            closestNote = standardNotes[i].note;
-        }
-    }
-
-    char noteDisplay[16];
-    snprintf(noteDisplay, sizeof(noteDisplay), "%s (%.1fHz)", closestNote, freq);
-    LCD_clear();
-    LCD_print(noteDisplay);
-}
 	USART0_TransmitStr("So called freq: ");
 	USART0_TransmitInt(Freq);
+	writeToLCD(Freq);
+}
+
+void writeToLCD(uint16_t freq)
+{    
+	char buffer[16];
+	 LCD_sendCommand(0x01); // Clear display
+	 _delay_ms(10);
+	 
+	 //LCD_print("potent");
+	 
+	 //Locate string
+// 	 if(potent >= 77 && potent <= 87)
+// 	 {
+// 		 LCD_setCursor(0, 0);
+// 		 LCD_print("E2: 82 Hz");
+// 	 }
+// 	 	 else if(potent >= 110 && potent <= 114)
+// 	 	 {
+// 		 	 LCD_setCursor(0, 0);
+// 		 	 LCD_print("A2: 112 Hz");
+// 	 	 }
+// 		  	 	 else if(potent >= 141 && potent <= 151)
+// 		  	 	 {
+// 			  	 	 LCD_setCursor(0, 0);
+// 			  	 	 LCD_print("D3: 146 Hz");
+// 		  	 	 }
+// 						 	 else if(potent >= 191 && potent <= 201)
+// 						 	 {
+// 							 	 LCD_setCursor(0, 0);
+// 							 	 LCD_print("G3: 196 Hz");
+// 						 	 }
+// 							  	 	 else if(potent >= 241 && potent <= 251)
+// 							  	 	 {
+// 								  	 	 LCD_setCursor(0, 0);
+// 								  	 	 LCD_print("B3: 246 Hz");
+// 							  	 	 }
+// 											 	 else if(potent >= 325 && potent <= 335)
+// 											 	 {
+// 												 	 LCD_setCursor(0, 0);
+// 												 	 LCD_print("E4: 330 Hz");
+// 											 	 }
+// 	 else
+// 	 {
+// 		 sprintf(buffer, "Move Potent: %u Hz", potent);
+// 		 LCD_setCursor(0, 0);
+// 		 LCD_print(buffer);
+// 	 }
+// 	 
+typedef struct {
+	uint16_t min;
+	uint16_t max;
+	const char* note;
+} NoteRange;
+
+NoteRange notes[] = {
+	{77,  87,  "E2: 82 Hz"},
+	{110, 114, "A2: 112 Hz"},
+	{141, 151, "D3: 146 Hz"},
+	{191, 201, "G3: 196 Hz"},
+	{241, 251, "B3: 246 Hz"},
+	{325, 335, "E4: 330 Hz"}
+};
+
+uint8_t matched = 0;
+for (uint8_t i = 0; i < sizeof(notes)/sizeof(notes[0]); i++) {
+	if (potent >= notes[i].min && potent <= notes[i].max) {
+		LCD_setCursor(0, 0);
+		LCD_print(notes[i].note);
+		matched = 1;
+		break;
+	}
+}
+
+if (!matched) {
+	sprintf(buffer, "Move Potent: %u Hz", potent);
+	LCD_setCursor(0, 0);
+	LCD_print(buffer);
+}
+
+	 sprintf(buffer, "Now Playing:%u Hz", freq);
+		 LCD_setCursor(0, 1);
+		 LCD_print(buffer);
+	 //sprintf(freq, "%u", freq);
+	 //LCD_setCursor(0, 1);
+	 //LCD_print(freq);
+	 //LCD_print(" Hz");
+
+	 
 }
 
 uint8_t scale_input_threshold(uint16_t input) {
@@ -253,7 +389,7 @@ uint8_t scale_input_threshold(uint16_t input) {
 	// Apply scaling
 	float output = slope * input + intercept;
 
-	// Clamp to 0–255
+	// Clamp to 0?255
 	if (output < 0) output = 0;
 	if (output > 255) output = 255;
 
@@ -294,6 +430,8 @@ ISR(PCINT0_vect) {
 }
 
 int main(void){
+	TWI_init();
+	LCD_init();
 	InitializeIO();
 	InitializeADC();
 	InitializeTimer0();
@@ -310,12 +448,14 @@ int main(void){
 			InitializeBuffer(&ADC_Buffer_16_Bit); //reset buffer basically..
 			fillInTheBuffer();
 			if(!soundDetected) {detectSound();}
-			else if (startRecording){calculateFrequencyAndNote();}
+			else if (startRecording){calculateFrequency();}
 		}
 		else{
-			uint16_t potent = read_ADC(POTENTIOMETER);
+			potent = read_ADC(POTENTIOMETER);
 			USART0_TransmitInt(potent);
+			writeToLCD(0);
 			AMPLITUDE_DETECTION_THRESHOLD = scale_input_threshold(potent);
+			
 			
 		}
 		
