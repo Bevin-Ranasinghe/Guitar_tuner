@@ -9,7 +9,15 @@
 #define SCL_CLOCK 100000L // 100kHz standard I2C clock speed
 #define BAUD 9600
 #define myUBBR0 F_CPU/16/BAUD-1
-#define BUFFERSIZE_16_BIT 500
+#define BUFFERSIZE_16_BIT 200
+
+//LEDS for distance from target
+#define DISTANCE_THRESHOLD 20
+#define RED_TOP_LED PB0
+#define ORANGE_TOP_LED PB1
+#define GREEN_LED PB2
+#define ORANGE_BOTTOM_LED PB3
+#define RED_BOTTOM_LED PB4
 
 volatile uint8_t AMPLITUDE_DETECTION_THRESHOLD = 30;
 //#define AMPLITUDE_DETECTION_THRESHOLD 30
@@ -26,7 +34,7 @@ volatile uint16_t potent = 0;
 
 
 #define BUTTON_PIN     PB7
-#define LED_PIN        PB5
+#define LED_PIN        PD2
 #define DEBOUNCE_DELAY 50
 
 // ================= I2C Interface =================
@@ -102,7 +110,7 @@ volatile bool takeADC = false, soundDetected = false, startRecording = false;
 volatile uint16_t tickOf125us = 0;
 volatile uint16_t previousAmplitude = 0, currentAmplitude = 0;
 volatile bool button_pressed = false;
-
+volatile uint16_t freqWeAreGetting = 0;
 //circularBuffer
 typedef struct {
 	uint16_t buffer[BUFFERSIZE_16_BIT];
@@ -115,7 +123,15 @@ volatile CircularBuffer16bit ADC_Buffer_16_Bit;
 
 //initialize everything here
 void InitializeIO(void) {
-	DDRB |= (1 << LED_PIN); // output
+	//DDRB |= (1 << LED_PIN); // output
+	DDRB |= (1 << RED_TOP_LED);
+	DDRB |= (1 << ORANGE_TOP_LED);
+	DDRB |= (1 << GREEN_LED);
+	DDRB |= (1 << ORANGE_BOTTOM_LED);
+	DDRB |= (1 << RED_BOTTOM_LED);
+	
+	DDRD |= (1 << LED_PIN);
+	PORTD |= (1 << LED_PIN);
 	
 	DDRB &= ~(1 << BUTTON_PIN); //internal button as an input    FOR TEST PURP
 	PORTB |= (1 << BUTTON_PIN); //pull-up
@@ -278,6 +294,8 @@ void detectSound(){
 	}
 	previousAmplitude = currentAmplitude;
 }
+volatile uint16_t frequencies[3] = {0,0,0, 0};
+volatile uint8_t freqCount = 0;
 void calculateFrequency(){
 	cli();
 	uint16_t almostMaxValue = averageOfTop2ExcludingMax(&ADC_Buffer_16_Bit);
@@ -286,114 +304,161 @@ void calculateFrequency(){
 	sei();
 	USART0_TransmitStr("So called freq: ");
 	USART0_TransmitInt(Freq);
-	writeToLCD(Freq);
+	frequencies[freqCount] = Freq;
+	freqCount++;	
+	uint16_t avgFreq = 0;
+	if(freqCount >= 4){
+		for(uint8_t i = 0; i < 4; ++i){
+			avgFreq += frequencies[i];
+		}
+		for(uint8_t i = 0; i < 4; ++i){
+			frequencies[i] = 0;
+		}
+		Freq = avgFreq/4;
+
+		USART0_TransmitStr("average: ");
+		USART0_TransmitInt(Freq);
+				writeToLCD(Freq);
+				freqWeAreGetting = Freq;
+		freqCount = 0;
+		avgFreq = 0;
+	}
+
 }
 
 void writeToLCD(uint16_t freq)
-{    
+{
 	char buffer[16];
-	 LCD_sendCommand(0x01); // Clear display
-	 _delay_ms(10);
-	 
-	 //LCD_print("potent");
-	 
-	 //Locate string
-// 	 if(potent >= 77 && potent <= 87)
-// 	 {
-// 		 LCD_setCursor(0, 0);
-// 		 LCD_print("E2: 82 Hz");
-// 	 }
-// 	 	 else if(potent >= 110 && potent <= 114)
-// 	 	 {
-// 		 	 LCD_setCursor(0, 0);
-// 		 	 LCD_print("A2: 112 Hz");
-// 	 	 }
-// 		  	 	 else if(potent >= 141 && potent <= 151)
-// 		  	 	 {
-// 			  	 	 LCD_setCursor(0, 0);
-// 			  	 	 LCD_print("D3: 146 Hz");
-// 		  	 	 }
-// 						 	 else if(potent >= 191 && potent <= 201)
-// 						 	 {
-// 							 	 LCD_setCursor(0, 0);
-// 							 	 LCD_print("G3: 196 Hz");
-// 						 	 }
-// 							  	 	 else if(potent >= 241 && potent <= 251)
-// 							  	 	 {
-// 								  	 	 LCD_setCursor(0, 0);
-// 								  	 	 LCD_print("B3: 246 Hz");
-// 							  	 	 }
-// 											 	 else if(potent >= 325 && potent <= 335)
-// 											 	 {
-// 												 	 LCD_setCursor(0, 0);
-// 												 	 LCD_print("E4: 330 Hz");
-// 											 	 }
-// 	 else
-// 	 {
-// 		 sprintf(buffer, "Move Potent: %u Hz", potent);
-// 		 LCD_setCursor(0, 0);
-// 		 LCD_print(buffer);
-// 	 }
-// 	 
-typedef struct {
-	uint16_t min;
-	uint16_t max;
-	const char* note;
-} NoteRange;
+	LCD_sendCommand(0x01); // Clear display
+	_delay_ms(10);
+	
+	//LCD_print("potent");
+	
+	//Locate string
+	// 	 if(potent >= 77 && potent <= 87)
+	// 	 {
+	// 		 LCD_setCursor(0, 0);
+	// 		 LCD_print("E2: 82 Hz");
+	// 	 }
+	// 	 	 else if(potent >= 110 && potent <= 114)
+	// 	 	 {
+	// 		 	 LCD_setCursor(0, 0);
+	// 		 	 LCD_print("A2: 112 Hz");
+	// 	 	 }
+	// 		  	 	 else if(potent >= 141 && potent <= 151)
+	// 		  	 	 {
+	// 			  	 	 LCD_setCursor(0, 0);
+	// 			  	 	 LCD_print("D3: 146 Hz");
+	// 		  	 	 }
+	// 						 	 else if(potent >= 191 && potent <= 201)
+	// 						 	 {
+	// 							 	 LCD_setCursor(0, 0);
+	// 							 	 LCD_print("G3: 196 Hz");
+	// 						 	 }
+	// 							  	 	 else if(potent >= 241 && potent <= 251)
+	// 							  	 	 {
+	// 								  	 	 LCD_setCursor(0, 0);
+	// 								  	 	 LCD_print("B3: 246 Hz");
+	// 							  	 	 }
+	// 											 	 else if(potent >= 325 && potent <= 335)
+	// 											 	 {
+	// 												 	 LCD_setCursor(0, 0);
+	// 												 	 LCD_print("E4: 330 Hz");
+	// 											 	 }
+	// 	 else
+	// 	 {
+	// 		 sprintf(buffer, "Move Potent: %u Hz", potent);
+	// 		 LCD_setCursor(0, 0);
+	// 		 LCD_print(buffer);
+	// 	 }
+	//
+	typedef struct {
+		uint16_t min;
+		uint16_t max;
+		const char* note;
+	} NoteRange;
 
-NoteRange notes[] = {
-	{77,  87,  "E2: 82 Hz"},
-	{110, 114, "A2: 112 Hz"},
-	{141, 151, "D3: 146 Hz"},
-	{191, 201, "G3: 196 Hz"},
-	{241, 251, "B3: 246 Hz"},
-	{325, 335, "E4: 330 Hz"}
-};
+	NoteRange notes[] = {
+		{77,  87,  "E2: 82 Hz"},
+		{106, 116, "A2: 112 Hz"},
+		{138, 151, "D3: 146 Hz"},
+		{189, 201, "G3: 196 Hz"},
+		{238, 254, "B3: 246 Hz"},
+		{320, 338, "E4: 330 Hz"}
+	};
 
-uint8_t matched = 0;
-for (uint8_t i = 0; i < sizeof(notes)/sizeof(notes[0]); i++) {
-	if (potent >= notes[i].min && potent <= notes[i].max) {
-		LCD_setCursor(0, 0);
-		LCD_print(notes[i].note);
-		matched = 1;
-		break;
+	uint8_t matched = 0;
+	for (uint8_t i = 0; i < sizeof(notes)/sizeof(notes[0]); i++) {
+		if (potent >= notes[i].min && potent <= notes[i].max) {
+			LCD_setCursor(0, 0);
+			LCD_print(notes[i].note);
+			matched = 1;
+			break;
+		}
 	}
-}
 
-if (!matched) {
-	sprintf(buffer, "Move Potent: %u Hz", potent);
-	LCD_setCursor(0, 0);
+	if (!matched) {
+		sprintf(buffer, "Move Pot: %u Hz", potent);
+		LCD_setCursor(0, 0);
+		LCD_print(buffer);
+	}
+
+	sprintf(buffer, "Detecting:%u Hz", freq);
+	LCD_setCursor(0, 1);
 	LCD_print(buffer);
-}
+	//sprintf(freq, "%u", freq);
+	//LCD_setCursor(0, 1);
+	//LCD_print(freq);
+	//LCD_print(" Hz");
 
-	 sprintf(buffer, "Now Playing:%u Hz", freq);
-		 LCD_setCursor(0, 1);
-		 LCD_print(buffer);
-	 //sprintf(freq, "%u", freq);
-	 //LCD_setCursor(0, 1);
-	 //LCD_print(freq);
-	 //LCD_print(" Hz");
-
-	 
+	
 }
 
 uint8_t scale_input_threshold(uint16_t input) {
-	// Define known input-output points
-	float x1 = 80.0f, y1 = 30.0f;
-	float x2 = 300.0f, y2 = 10.0f;
+	// Define known input-output points for new range: 30 to 5
+	float x1 = 80.0f,  y1 = 30.0f;  // Low input -> high output
+	float x2 = 300.0f, y2 = 5.0f;   // High input -> low output
 
 	// Compute slope (m) and intercept (b) for y = mx + b
-	float slope = (y2 - y1) / (x2 - x1); // = (10 - 30) / (300 - 80)
+	float slope = (y2 - y1) / (x2 - x1); // (5 - 30) / (300 - 80)
 	float intercept = y1 - slope * x1;
 
 	// Apply scaling
 	float output = slope * input + intercept;
 
-	// Clamp to 0?255
+	// Clamp to 0–255
 	if (output < 0) output = 0;
 	if (output > 255) output = 255;
 
 	return (uint8_t)(output + 0.5f); // Round to nearest integer
+}
+
+uint16_t distanceFromTarget(uint16_t targetF, uint16_t currentF){
+	if(((targetF+DISTANCE_THRESHOLD) >= currentF) && ((targetF-DISTANCE_THRESHOLD) <= currentF )){
+		PORTB = 0;
+		PORTB |= (1 << GREEN_LED);
+	}
+	else if((targetF+DISTANCE_THRESHOLD*2) >= currentF){
+		PORTB = 0;
+		PORTB |= (1 << ORANGE_TOP_LED);
+	}
+	else if((targetF-DISTANCE_THRESHOLD*2) <= currentF){
+		PORTB = 0;
+		PORTB |= (1 << ORANGE_BOTTOM_LED);
+	}
+	else if(1023 >= currentF){
+		PORTB = 0;
+		PORTB |= (1 << RED_TOP_LED);
+	}
+	else if (0 <= currentF){
+		PORTB = 0;
+		PORTB |= (1 << RED_BOTTOM_LED);
+	}
+	else{
+		PORTB ^= (1 << RED_BOTTOM_LED); //toggle to see that something is not working
+		PORTB ^= (1 << RED_TOP_LED);
+	}
+
 }
 
 ISR(TIMER0_COMPA_vect){
@@ -440,7 +505,7 @@ int main(void){
 	while(1){
 		
 		if (button_pressed) {
-			PORTB ^= (1 << LED_PIN);  // Toggle LED on PB5
+			PORTD ^= (1 << LED_PIN);  // Toggle LED on PB5
 			toggle_adc_channel = !toggle_adc_channel; //toggle
 			button_pressed = false;
 		}
@@ -448,14 +513,17 @@ int main(void){
 			InitializeBuffer(&ADC_Buffer_16_Bit); //reset buffer basically..
 			fillInTheBuffer();
 			if(!soundDetected) {detectSound();}
-			else if (startRecording){calculateFrequency();}
+			else if (startRecording){
+				calculateFrequency();
+				distanceFromTarget(potent, freqWeAreGetting);
+			}
 		}
 		else{
-			potent = read_ADC(POTENTIOMETER);
-			USART0_TransmitInt(potent);
+			potent = read_ADC(POTENTIOMETER)/2;
+			USART0_TransmitInt(potent/2);
 			writeToLCD(0);
 			AMPLITUDE_DETECTION_THRESHOLD = scale_input_threshold(potent);
-			
+			_delay_ms(50);
 			
 		}
 		
