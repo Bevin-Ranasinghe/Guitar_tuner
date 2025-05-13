@@ -343,46 +343,6 @@ void writeToLCD(uint16_t freq)
 	LCD_sendCommand(0x01); // Clear display
 	_delay_ms(10);
 	
-	//LCD_print("potent");
-	
-	//Locate string
-	// 	 if(potent >= 77 && potent <= 87)
-	// 	 {
-	// 		 LCD_setCursor(0, 0);
-	// 		 LCD_print("E2: 82 Hz");
-	// 	 }
-	// 	 	 else if(potent >= 110 && potent <= 114)
-	// 	 	 {
-	// 		 	 LCD_setCursor(0, 0);
-	// 		 	 LCD_print("A2: 112 Hz");
-	// 	 	 }
-	// 		  	 	 else if(potent >= 141 && potent <= 151)
-	// 		  	 	 {
-	// 			  	 	 LCD_setCursor(0, 0);
-	// 			  	 	 LCD_print("D3: 146 Hz");
-	// 		  	 	 }
-	// 						 	 else if(potent >= 191 && potent <= 201)
-	// 						 	 {
-	// 							 	 LCD_setCursor(0, 0);
-	// 							 	 LCD_print("G3: 196 Hz");
-	// 						 	 }
-	// 							  	 	 else if(potent >= 241 && potent <= 251)
-	// 							  	 	 {
-	// 								  	 	 LCD_setCursor(0, 0);
-	// 								  	 	 LCD_print("B3: 246 Hz");
-	// 							  	 	 }
-	// 											 	 else if(potent >= 325 && potent <= 335)
-	// 											 	 {
-	// 												 	 LCD_setCursor(0, 0);
-	// 												 	 LCD_print("E4: 330 Hz");
-	// 											 	 }
-	// 	 else
-	// 	 {
-	// 		 sprintf(buffer, "Move Potent: %u Hz", potent);
-	// 		 LCD_setCursor(0, 0);
-	// 		 LCD_print(buffer);
-	// 	 }
-	//
 	typedef struct {
 		uint16_t min;
 		uint16_t max;
@@ -416,13 +376,7 @@ void writeToLCD(uint16_t freq)
 
 	sprintf(buffer, "Detecting:%u Hz", freq);
 	LCD_setCursor(0, 1);
-	LCD_print(buffer);
-	//sprintf(freq, "%u", freq);
-	//LCD_setCursor(0, 1);
-	//LCD_print(freq);
-	//LCD_print(" Hz");
-
-	
+	LCD_print(buffer);	
 }
 
 uint8_t scale_input_threshold(uint16_t input) {
