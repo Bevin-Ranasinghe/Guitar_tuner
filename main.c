@@ -4,6 +4,8 @@
 #include <avr/interrupt.h>
 #include <stdbool.h>
 #include <util/delay.h>
+#include <avr/sleep.h>
+#include <avr/power.h>
 
 #define LCD_ADDR        0x3E
 #define SCL_CLOCK 100000L // 100kHz standard I2C clock speed
@@ -19,6 +21,7 @@
 #define ORANGE_BOTTOM_LED PB3
 #define RED_BOTTOM_LED PB4
 
+
 volatile uint8_t AMPLITUDE_DETECTION_THRESHOLD = 30;
 //#define AMPLITUDE_DETECTION_THRESHOLD 30
 volatile uint16_t potent = 0;
@@ -33,7 +36,7 @@ volatile uint16_t potent = 0;
 #define LCD_LINE2       0xC0
 
 
-#define BUTTON_PIN     PB7
+#define BUTTON_PIN     PD3
 #define LED_PIN        PD2
 #define DEBOUNCE_DELAY 50
 
@@ -103,6 +106,9 @@ void LCD_print(const char *str) {
 	}
 }
 
+
+
+
 //end of LCD functions
 
 volatile bool toggle_adc_channel = false;
@@ -110,6 +116,7 @@ volatile bool takeADC = false, soundDetected = false, startRecording = false;
 volatile uint16_t tickOf125us = 0;
 volatile uint16_t previousAmplitude = 0, currentAmplitude = 0;
 volatile bool button_pressed = false;
+volatile bool STOPbutton_pressed = false;
 volatile uint16_t freqWeAreGetting = 0;
 //circularBuffer
 typedef struct {
@@ -133,12 +140,16 @@ void InitializeIO(void) {
 	DDRD |= (1 << LED_PIN);
 	PORTD |= (1 << LED_PIN);
 	
-	DDRB &= ~(1 << BUTTON_PIN); //internal button as an input    FOR TEST PURP
-	PORTB |= (1 << BUTTON_PIN); //pull-up
+ 	DDRB &= ~(1 << PORTB7); //internal button as an input    FOR TEST PURP
+ 	PORTB |= (1 << PORTB7); //pull-up
+	DDRD &= ~(1 << BUTTON_PIN); //internal button as an input    FOR TEST PURP
+	PORTD |= (1 << BUTTON_PIN); //pull-up
+	// Enable Pin Change Interrupt for PD3 (PCINT19)
+	PCICR |= (1 << PCIE2);        // Enable Pin Change Interrupt group 2 (PCINT[23:16])
+	PCMSK2 |= (1 << PCINT19);     // Enable interrupt for PCINT19 (PD3)
+    PCICR |= (1 << PCIE0);   
+	PCMSK0 |= (1 << PCINT7);  // For PORTB7
 
-	// Enable Pin Change Interrupt for PB7
-	PCICR |= (1 << PCIE0);        // Enable Pin Change Interrupt group 0 (PCINT[7:0])
-	PCMSK0 |= (1 << PCINT7);      // Enable interrupt for PCINT7 (PB7)
 
 	sei();
 }
@@ -294,7 +305,7 @@ void detectSound(){
 	}
 	previousAmplitude = currentAmplitude;
 }
-volatile uint16_t frequencies[3] = {0,0,0, 0};
+volatile uint16_t frequencies[4] = {0,0,0,0};
 volatile uint8_t freqCount = 0;
 void calculateFrequency(){
 	cli();
@@ -440,13 +451,23 @@ uint16_t distanceFromTarget(uint16_t targetF, uint16_t currentF){
 	}
 	else if(((targetF+DISTANCE_THRESHOLD*2) >= currentF) && (targetF-DISTANCE_THRESHOLD*2) <= currentF){
 		PORTB = 0;
-		PORTB |= (1 << ORANGE_TOP_LED);
-		PORTB |= (1 << ORANGE_BOTTOM_LED);
+		if(targetF>currentF){
+			PORTB |= (1 << ORANGE_TOP_LED);
+		}
+		else{
+			PORTB |= (1 << ORANGE_BOTTOM_LED);
+		}
+		
 	}
 	else if((1023 >= currentF) && (0 <= currentF)){
 		PORTB = 0;
-		PORTB |= (1 << RED_TOP_LED);
-		PORTB |= (1 << RED_BOTTOM_LED);
+		if(targetF>currentF){
+			PORTB |= (1 << RED_TOP_LED);
+		}
+		else{
+			PORTB |= (1 << RED_BOTTOM_LED);
+		}
+		
 	}
 }
 
@@ -465,13 +486,13 @@ ISR(TIMER0_COMPA_vect){
 		startRecording = false;
 	}
 }
-ISR(PCINT0_vect) {
+ISR(PCINT2_vect) {
 	static uint8_t last_state = 1;  // Assumes pull-up (idle high)
-	uint8_t current_state = (PINB & (1 << BUTTON_PIN)) ? 1 : 0;
+	uint8_t current_state = (PIND & (1 << BUTTON_PIN)) ? 1 : 0;
 
 	if (current_state != last_state) {
 		_delay_ms(DEBOUNCE_DELAY);  // Debounce delay
-		current_state = (PINB & (1 << BUTTON_PIN)) ? 1 : 0;
+		current_state = (PIND & (1 << BUTTON_PIN)) ? 1 : 0;
 
 		if (current_state != last_state) {
 			last_state = current_state;
@@ -483,6 +504,27 @@ ISR(PCINT0_vect) {
 	}
 }
 
+
+ISR(PCINT0_vect) {
+	static uint8_t last_state = 1;  // Assumes pull-up (idle high)
+	uint8_t current_state = (PINB & (1 << PORTB7)) ? 1 : 0;
+
+	if (current_state != last_state) {
+		_delay_ms(DEBOUNCE_DELAY);  // Debounce delay
+		current_state = (PINB & (1 << PORTB7)) ? 1 : 0;
+
+		if (current_state != last_state) {
+			last_state = current_state;
+
+			if (current_state == 0) {  // Falling edge (button press)
+				STOPbutton_pressed = !STOPbutton_pressed;  // Toggle
+			}
+		}
+	}
+}
+
+
+
 int main(void){
 	TWI_init();
 	LCD_init();
@@ -492,7 +534,7 @@ int main(void){
 	InitializeUart0(myUBBR0);
 	sei();
 	while(1){
-		
+		while(!STOPbutton_pressed){
 		if (button_pressed) {
 			PORTD ^= (1 << LED_PIN);  // Toggle LED on PB5
 			toggle_adc_channel = !toggle_adc_channel; //toggle
@@ -515,6 +557,10 @@ int main(void){
 			_delay_ms(50);
 			
 		}
+		
+			
+		}
+		
 		
 		
 
